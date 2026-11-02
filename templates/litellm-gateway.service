@@ -1,0 +1,28 @@
+# systemd USER unit for a uv-venv LiteLLM gateway (Docker alternative when
+# ghcr.io registry is blocked). Install to ~/.config/systemd/user/.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp litellm-gateway.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now litellm-gateway.service
+#   loginctl enable-linger <user>        # REQUIRED or it won't start at boot
+#
+[Unit]
+Description=LiteLLM gateway for agents
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/<user>/litellm
+# Only needed if callback modules live next to config.yaml:
+# Environment=PYTHONPATH=/home/<user>/litellm
+ExecStart=/home/<user>/litellm/.venv/bin/litellm --config /home/<user>/litellm/config.yaml --port 4000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+
+# ---- matching one-shot + timer for a budget guard (run every N minutes) ----
+# budget-guard.service (Type=oneshot, ExecStart=<venv>/python /home/<user>/litellm/budget_guard.py)
+# budget-guard.timer (OnBootSec=2min, OnUnitActiveSec=5min, WantedBy=timers.target)
+# enable BOTH service and timer with: systemctl --user enable --now budget-guard.timer

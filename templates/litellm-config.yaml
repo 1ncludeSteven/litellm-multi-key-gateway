@@ -1,0 +1,74 @@
+# LiteLLM gateway config template. Adapt: one deployment per (provider, key),
+# grouped by model_name. NEVER paste full key literals into tool output or
+# generated files — build them in code from fragments / trusted env files,
+# then assert length on disk (see references/troubleshooting.md, pitfall 1).
+model_list:
+  # --- capability tier A: two keys of the SAME provider, load-balanced ---
+  - model_name: main-tier
+    litellm_params:
+      model: openai/<model-id>
+      api_base: https://provider-a.example/v1
+      api_key: ${PROVIDER_A_KEY_1}   # via env, or os.environ/PROVIDER_A_KEY_1
+      rpm: 60
+      tpm: 1000000
+    model_info:
+      id: prov-a-key-1
+    order: 1
+  - model_name: main-tier
+    litellm_params:
+      model: openai/<model-id>
+      api_base: https://provider-a.example/v1
+      api_key: ${PROVIDER_A_KEY_2}
+      rpm: 60
+      tpm: 1000000
+    model_info:
+      id: prov-a-key-2
+    order: 1
+
+  # --- capability tier B: different provider (fallback destination) ---
+  - model_name: backup-tier
+    litellm_params:
+      model: openai/<other-model-id>
+      api_base: https://provider-b.example/v1
+      api_key: ${PROVIDER_B_KEY_1}
+      rpm: 30
+    model_info:
+      id: prov-b-key-1
+    order: 1
+
+  # --- budget-limited key (e.g. fixed N rounds): keep it OUT of fallbacks,
+  #     give it its own model_name, guard it with a usage timer (see
+  #     templates/budget_guard.py). ---
+  - model_name: budget-tier
+    litellm_params:
+      model: openai/<budget-model-id>
+      api_base: https://provider-c.example/v1
+      api_key: ${PROVIDER_C_KEY_1}
+      rpm: 10
+    model_info:
+      id: prov-c-key-1
+    order: 1
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  allowed_fails: 2        # a deployment fails this many times within cooldown_time -> cooldown
+  cooldown_time: 30      # seconds; 429s trigger immediate cooldown
+  fallbacks:
+    # leave a group only when ALL its deployments are in cooldown
+    - main-tier: [backup-tier]
+    - backup-tier: [main-tier]
+    # budget-tier intentionally has NO fallback entry -> only explicit use
+
+litellm_settings:
+  # optional custom usage-log callback (module.instance — instance, not class!)
+  # callbacks: ["usage_tracker.usage_tracker"]
+
+# NOTE: `request_timeout` under router_settings is NOT a valid Router arg in
+# litellm 1.x — it is silently ignored. Put timeouts in litellm_settings instead
+# if needed. Verified 2026-11, litellm 1.106.x.
+
+general_settings:
+  master_key: ${GATEWAY_MASTER_KEY}   # the token agents use
+  # database: "sqlite:////path/litellm.db"  # spend DB (may not initialize
+  # reliably without extra setup — verify, else count via callback log)
